@@ -102,18 +102,15 @@ def make_basemap(width,height,sticker,x,y):
 def make_masktensor(width,height,sticker,x,y):
     layer = Image.new('RGBA',(width,height),(255,255,255,0)) # white and transparent
     layer.paste(sticker,(x,y))
-    #layer.show()
     base = np.array(layer)
     alpha_matrix = base[:,:,3]
     basemap = np.where(alpha_matrix!=0,1,0)
     rep = cv2.merge((basemap,basemap,basemap))
-    #cv2.imwrite("outImage.jpg",rep*255)
     rep = np.transpose(rep,(2,0,1))
     rep = torch.from_numpy(rep)
     rep = torch.unsqueeze(rep,0)
     return rep
 
-#@jit(nopython=True)
 def create_space(base):
     #base = sticker
     alpha_matrix = base[:,:,3]
@@ -146,49 +143,3 @@ if __name__=="__main__":
     x,y=torch.tensor(5).numpy(),torch.tensor(7).numpy()
     layer.paste(st,(x,y))
     layer.save('x.png')
-    # pic_path = './lfw_patch/s1.jpg'
-    # transparent_back(pic_path)
-
-    # pic_dir = "./lfw_patch/6179.jpg"
-    # stickerpath = './lfw_patch/s1.png'
-    # x = 111
-    # y = 75        #Image style
-    # scale = 18
-    # img = Image.open(pic_dir)
-
-    # facemask = feature.make_mask(img)
-    # sticker = change_sticker(stickerpath = stickerpath,scale = scale)
-    # base,basemap = make_basemap(width=facemask.shape[1],height=facemask.shape[0],sticker=sticker,x=x,y=y)
-    # outImage = make_stick2(backimg=img,sticker=sticker,x=x,y=y,factor=0.2)
-    # outImage.show()
-
-
-    # num_space = np.sum(facemask).astype(int)
-    # area = np.sum(basemap)
-    # overlap = facemask * basemap
-    # retain = np.sum(overlap)
-    # print('num_space = ',num_space)
-    # print('area = ',area)
-    # print('retain = ',retain)
-
-    # searchspace = np.zeros((num_space,2)) # store the coordinate(Image style)
-    # k = 0
-    # for i in range(facemask.shape[0]):
-    #     for j in range(facemask.shape[1]):
-    #         if(facemask[i][j] == 1):
-    #             searchspace[k] = (j,i)
-    #             k = k + 1
-
-    # cv2.imshow("face",facemask)
-    # cv2.imshow("st",basemap)
-    # # cv2.imshow("outImg",outImage/255)
-    # cv2.waitKey(0)
-
-    # backimg = Image.open('/home/guoying/rlpatch/mtcnn_pytorch_master/align.jpg')
-    # sticker = Image.new('RGBA',(60,30),(255,255,255,255))
-    # x,y = 50,25
-    # out = make_stick2(backimg,sticker,x,y,factor=1)
-    # out.save('temp.jpg')
-    # rep = make_masktensor(160,160,sticker,x,y)
-    # print(rep.shape)
-    # print(torch.sum(rep))

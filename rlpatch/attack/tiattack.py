@@ -95,8 +95,6 @@ def load_model(model_name, device):
         return model
     elif (model_name == 'mobilefacenet'):
         mobilefacenet_path = 'stmodels/mobilefacenet/mobilefacenet_scripted.pt'
-        #model = MobileFaceNet()
-        #model.load_state_dict(torch.load(eval("{}_path".format(model_name)),map_location=device))
         model = torch.jit.load(eval("{}_path".format(model_name)),map_location=device)
         model.eval()
         model = model.to(device)
@@ -104,14 +102,14 @@ def load_model(model_name, device):
     elif (model_name == 'arcface34'):
         arcface34_path = 'stmodels/arcface34/arcface_34.pth'
         model = iresnet34(False, dropout=0, fp16=True)
-        model.load_state_dict(torch.load(eval("{}_path".format(model_name)),map_location=device))
+        model.load_state_dict(torch.load(eval("{}_path".format(model_name)), map_location=device))
         model.eval()
         model = model.to(device)
         return model
     elif (model_name == 'cosface34'):
         cosface34_path = 'stmodels/cosface34/cosface_34.pth'
         model = iresnet34(False, dropout=0, fp16=True)
-        model.load_state_dict(torch.load(eval("{}_path".format(model_name)),map_location=device))
+        model.load_state_dict(torch.load(eval("{}_path".format(model_name)), map_location=device))
         model.eval()
         model = model.to(device)
         return model
@@ -121,11 +119,12 @@ def load_model(model_name, device):
         arcface50_path = 'stmodels/arcface50/ms1mv3_arcface_r50_fp16.pth'
         cosface50_path = 'stmodels/cosface50/glint360k_cosface_r50_fp16_0.1.pth'
         model = iresnet50(False, dropout=0, fp16=True)
-        model.load_state_dict(torch.load(eval("{}_path".format(model_name)),map_location=device))
+        model.load_state_dict(torch.load(eval("{}_path".format(model_name)), map_location=device))
         model.eval()
         model = model.to(device)
         return model
 
+# 从一个预定义的文件中加载与特定模型相关的锚点嵌入（anchor embeddings）
 def load_anchors(model_name, device, target):
     anchor_embeddings =  joblib.load('stmodels/{}/embeddings_{}.pkl'.format(model_name,model_name))
     anchor = anchor_embeddings[target:target+1]
@@ -171,6 +170,11 @@ def cosin_metric(prd,src,device):
     metrics = torch.mul(mlt,1/denominator)
     return metrics
 
+"""
+Transferable Individualized Black-box Adversarial Attack
+一种黑盒攻击方法，攻击者没有直接访问模型的内部信息，但可能通过查询模型的输出来进行攻击。
+这种攻击方法依赖于模型之间的迁移性，即在一个模型上学到的对抗性样本在另一个模型上也能产生类似的效果
+"""
 def tiattack_face(x, y, epsilon, weights, model_names,
                   img, label, target, device, sticker,
                   width, height, emp_iterations, di, adv_img_folder, targeted = True):
@@ -189,9 +193,7 @@ def tiattack_face(x, y, epsilon, weights, model_names,
     
     crops_result, crops_tensor = crop_imgs([img], width, height)
     X_ori = torch.stack(crops_tensor).to(device)
-    #print(X_ori.shape)
     delta = torch.zeros_like(X_ori,requires_grad=True).to(device)
-    #label = torch.tensor(label).to(device)
 
     fr_models, anchors = [], []
     for name in model_names:
@@ -199,33 +201,28 @@ def tiattack_face(x, y, epsilon, weights, model_names,
         anchor = load_anchors(name, device, target)
         fr_models.append(model)
         anchors.append(anchor)
-    #print(anchors.shape)
+    # 创建 sticker 的 mask
     mask = make_stmask(crops_result[0],sticker,x,y)
 
     for itr in range(emp_iterations):
         g_temp = []
         for t in range(len(liner_interval)):
+            # 对每个模型计算损失 accm
             c = liner_interval[t]
             X_adv = X_ori + c * delta
             accm = 0
             for (i, name) in enumerate(model_names):
                 X_op = nn.functional.interpolate(X_adv, (inputsize[name][0], inputsize[name][1]), mode='bilinear', align_corners=False)
-                # if di:
-                #     X_adv = X_ori + delta
-                #     X_adv = DI(X_adv, 500)   # diverse input operation
-                #     X_op = nn.functional.interpolate(X_adv, (inputsize[name][0], inputsize[name][1]), mode='bilinear', align_corners=False)
                 feature = fr_models[i](X_op)
                 l_sim = cosin_metric(feature,anchors[i],device)
                 accm += l_sim * weights[i]
-            #print('---iter {} interval {}--- loss = {}'.format(itr,t,loss))
+            # 梯度计算和反向传播，计算 loss 相对于输入图像的梯度，从而指导如何修改输入以增加或减少 loss
             loss = flag * accm
-            #print('---iter {} interval {}--- loss = {}'.format(itr,t,loss))
             loss.backward()
             
             # TI operation
             grad_c = delta.grad.clone()                        
             grad_c = F.conv2d(grad_c, gaussian_kernel, bias=None, stride=1, padding=(2,2), groups=3)
-            #grad_a = grad_c / torch.mean(torch.abs(grad_c), (1, 2, 3), keepdim=True)+0.5*grad_momentum   # 1
             grad_a = grad_c
             # grad_momentum = grad_a
             g_temp.append(grad_a)
@@ -234,11 +231,11 @@ def tiattack_face(x, y, epsilon, weights, model_names,
             g_syn += g_temp[j]
         g_syn = g_syn / 9.0
         delta.grad.zero_()
+
         # L-inf attack
         delta.data=delta.data-epsilon * torch.sign(g_syn)
         delta.data = delta.data * mask.to(device)
-        #delta.data=delta.data.clamp(-args.linf_epsilon/255.,args.linf_epsilon/255.)
-        delta.data=((X_ori+delta.data).clamp(0,1))-X_ori              # 噪声截取操作
+        delta.data = ((X_ori+delta.data).clamp(0,1)) - X_ori              # 噪声截取操作
         
         with torch.no_grad():
             X_adv = X_ori + delta
@@ -279,15 +276,36 @@ def tensor2PIL(tensor): # 将tensor-> PIL
     image = unloader(image)
     return image
 
+"""
+Manifold-based Individualized White-box Adversarial Attack
+白盒攻击方法，基于流形学习理论，假设数据分布在一个低维流形上，并且人脸识别模型学习了这个流形的表示。
+MIATtack通过在模型的决策边界附近寻找对抗性样本，尝试生成对特定人脸识别模型有效的扰动。
+
+Returns:
+    adv_face_ts：   对抗性图像的PyTorch张量 
+    im：            PIL图像
+    mask：          sticker 的 mask
+"""
 def miattack_face(params_slove, model_names, fr_models,
                   img, label, target, device, sticker,
                   width, height, emp_iterations, di, adv_img_folder, targeted = True):
+    """
+    Manifold-based Individualized White-box Adversarial Attack
+    白盒攻击方法，基于流形学习理论，假设数据分布在一个低维流形上，并且人脸识别模型学习了这个流形的表示。
+    MIATtack通过在模型的决策边界附近寻找对抗性样本，尝试生成对特定人脸识别模型有效的扰动。
+
+    Returns:
+        adv_face_ts：   对抗性图像的PyTorch张量 
+        im：            PIL图像
+        mask：          sticker 的 mask
+    """
+    # 对抗补丁的宽度 mw 和高度 mh
     mw = sticker.size[0]
     mh = sticker.size[1]
+    # params_slove 包含攻击参数，包括 (x, y) 位置、权重、扰动强度等。
     x, y = params_slove[0]
     weights = params_slove[1]
     epsilon = params_slove[2]
-    # nsig = params_slove[3]
     flag = 1 if targeted else -1
     w,h = img.size
     if(w!=width or h!=height):
@@ -297,92 +315,68 @@ def miattack_face(params_slove, model_names, fr_models,
         crops_tensor = [trans(img)]
     X_ori = torch.stack(crops_tensor).to(device)
     
-
-    #print(X_ori.shape)
     delta = torch.zeros_like(X_ori,requires_grad=True).to(device)
 
     with torch.no_grad():
         X_ori[0,:,y:y+mh,x:x+mw] = torch.zeros([3,mh,mw])
 
+    # 对于每个模型名称，使用 load_anchors 函数加载对应的锚点。
     anchors = []
     for name in model_names:
-        # if name == "tencent":
-        #     continue
         anchor = load_anchors(name, device, target)
         anchors.append(anchor)
         
+    # 创建 sticker 的 mask
     mask = make_stmask(crops_result[0],sticker,x,y)
     grad_momentum = 0
-    for itr in range(emp_iterations):   # iterations in the generation of adversarial examples
+
+    # iterations in the generation of adversarial examples
+    for itr in range(emp_iterations):   
         X_adv = X_ori + delta
         X_adv.retain_grad()
         accm = 0
         X_op = DI(X_adv)
-        # print('---iter {}---'.format(itr),end=' ')
         for (i, name) in enumerate(model_names):
-            # if name == "tencent":
-            #     continue
             X_op = nn.functional.interpolate(X_op, (inputsize[name][0], inputsize[name][1]), mode='bilinear', align_corners=False)
             feature = fr_models[i](X_op)
             l_sim = cosin_metric(feature,anchors[i],device)
-            # print(name,':','{:.4f}'.format(l_sim.item()),end=' ')
             accm += l_sim * weights[i]
             
-        # print('---iter {} interval {}--- loss = {}'.format(itr,t,loss))
-        #slope = reward_slope(X_adv,params_slove,sticker,device)
-        # total_variation = TotalVariation().cuda()
-        # tv = total_variation(delta[0])
+        # 梯度计算和反向传播，计算 loss 相对于输入图像的梯度，从而指导如何修改输入以增加或减少 loss
         loss = flag * accm# + 0.3*slope# + 2.5*tv
         loss.backward()
         
         # MI operation
+        # 使用动量项 grad_momentum 平滑梯度更新。
         grad_c = X_adv.grad.clone()  
-        grad_a = grad_c / torch.mean(torch.abs(grad_c), (1, 2, 3), keepdim=True)+1.0*grad_momentum   # 1
+        grad_a = grad_c / torch.mean(torch.abs(grad_c), (1, 2, 3), keepdim=True) + 1.0 * grad_momentum   # 1
         grad_momentum = grad_a
             
         X_adv.grad.zero_()
-        X_adv.data=X_adv.data+epsilon * torch.sign(grad_momentum)* mask.to(device)
-        #X_adv.data = X_adv.data 
-        #delta.data=delta.data.clamp(-args.linf_epsilon/255.,args.linf_epsilon/255.)
-        X_adv.data=X_adv.data.clamp(0,1)
-        delta.data=X_adv-X_ori
-        #将delta噪声进行平滑
+        X_adv.data = X_adv.data+epsilon * torch.sign(grad_momentum)* mask.to(device)
+        X_adv.data = X_adv.data.clamp(0,1)
+        delta.data = X_adv - X_ori
 
-        # 1.avg pooling
-        # delta2 = torch.zeros(3,25,30)
-        # delta2 = delta.data[0,:,y:y+25,x:x+30]
-        # pool = nn.AvgPool2d(3,stride=1,padding=1)
-        # delta2 = pool(delta2)
-        # delta.data[0,:,y:y+25,x:x+30] = delta2
-        # 2.maxPooling
-        # delta2 = torch.zeros(3,25,30)
-        # delta2 = delta.data[0,:,y:y+25,x:x+30]
-        # pool = nn.MaxPool2d(3,stride=1,padding=1)
-        # delta2 = pool(delta2)
-        # delta.data[0,:,y:y+25,x:x+30] = delta2
-        # 3.resize
+        # 将delta噪声进行平滑，提高了对抗扰动的有效性和稳定性
         delta2 = torch.zeros(3,mh,mw)
-        delta2 = delta.data[0,:,y:y+mh,x:x+mw]
-        patch1 = torch.tensor(delta2)
+        delta2 = delta.data[0, :, y:y+mh, x:x+mw]
+        patch1 = delta.clone().detach()
         patch2 = patch1.cpu().numpy()
         patch2 = np.transpose(patch2,(2,1,0))
-        patch3 = cv2.resize(patch2,(int(mh/2),int(mw/2)))
+        patch3 = cv2.resize(patch2,(int(mh/2), int(mw/2)))
         patch3 = cv2.resize(patch3,(mh,mw))
         patch3 = np.transpose(patch3,(2,1,0))
         patch4 = torch.from_numpy(patch3)
-        delta.data[0,:,y:y+mh,x:x+mw] = patch4
-        #
-
-    adv_face_ts = (X_ori+delta).cpu().detach()
-    adv_final = (X_ori+delta)[0].cpu().detach().numpy()
+        delta.data[0, :, y:y+mh, x:x+mw] = patch4
+    
+    # 最终的对抗样本 adv_face_ts
+    adv_face_ts = (X_ori + delta).cpu().detach()
+    adv_final = (X_ori + delta)[0].cpu().detach().numpy()
     adv_final = (adv_final*255).astype(np.uint8)
-    localtime2 = time.asctime( time.localtime(time.time()) )
-    file_path = os.path.join(adv_img_folder, '{}.jpg'.format(localtime2))
     adv_x_255 = np.transpose(adv_final, (1, 2, 0))
     im = Image.fromarray(adv_x_255)
-    #im.save(file_path,quality=99)
-    #torch.cuda.empty_cache()
-    return adv_face_ts,im,mask
+
+    return adv_face_ts, im, mask
 
 def get_kernel(kernlen=15, nsig=3):
     import scipy.stats as st
@@ -393,27 +387,12 @@ def get_kernel(kernlen=15, nsig=3):
     return kernel
 
 def TI_kernel(nsig):
-    kernel_size = 3                                   # kernel size
+    kernel_size = 3   # kernel size
     kernel = get_kernel(kernel_size, nsig).astype(np.float32)
     gaussian_kernel = np.stack([kernel, kernel, kernel])   # 5*5*3
     gaussian_kernel = np.expand_dims(gaussian_kernel, 1)   # 1*5*5*3
     gaussian_kernel = torch.from_numpy(gaussian_kernel).cuda()  # tensor and cuda
     return gaussian_kernel
-
-# def check():
-#     # faceimg = Image.open('/home/lenovo/shighgh/newpatch_rl/code_rl/rlpatch/example/guoying/1103_gy.jpg')
-#     # crops_result, crops_tensor = crop_imgs([faceimg],args.width, args.height)
-#     crops_result = [Image.open('/home/lenovo/shighgh/newpatch_rl/code_rl/rlpatch/adv_imgs/0.jpg')]
-#     anchor_embeddings =  joblib.load('/home/lenovo/shighgh/newpatch_rl/code_rl/rlpatch/stmodels/{}/embeddings_{}_5752.pkl'.format(args.source_model,args.source_model))
-#     anchors = anchor_embeddings[5749:5750]
-#     anchors = anchors.to(device)
-
-#     intput = torch.unsqueeze(trans(crops_result[0]),0).to(device)
-#     print(intput.shape)
-#     intput = nn.functional.interpolate(intput, (inputsize[0], inputsize[1]), mode='bilinear', align_corners=False)            # 插值到224
-#     feature = fr_model(intput)
-#     m = cosin_metric(feature,anchors,device)
-#     print(m)
 
 if __name__=="__main__":
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')

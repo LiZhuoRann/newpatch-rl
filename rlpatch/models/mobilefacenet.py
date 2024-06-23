@@ -213,13 +213,12 @@ class ArcMarginModel(nn.Module):
 
 
 if __name__ == "__main__":
-    #from torchscope import scope
-
+    # from torchscope import scope
 
     model = MobileFaceNet()
     input = torch.Tensor(10, 3, 112, 112)
 
     out = model(input)
     print(out.shape)
-    # print(model)
-    #scope(model, input_size=(3, 112, 112))
+    print(model)
+    # scope(model, input_size=(3, 112, 112))

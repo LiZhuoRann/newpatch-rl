@@ -1,0 +1,6 @@
+# 数据集不要添加到git仓库
+lfw/
+newData*/
+
+# 运行结果不要添加到 git 仓库
+rlpatch/res/

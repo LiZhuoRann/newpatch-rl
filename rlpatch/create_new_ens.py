@@ -32,8 +32,6 @@ def add_face_local(database_path, name, batch_size):
     input = nn.functional.interpolate(input, (w, h), mode='bilinear', align_corners=False)
     print(input.shape)
     output = []
-    # for i in range(0,input.shape[0],batch_size):
-    #     output.append(fr_model(input[:min(batch_size,input.shape[0]-i)]).detach().cpu())
     for i in range(0,input.shape[0],batch_size):
         output.append(fr_model(input[i:i+min(batch_size,input.shape[0]-i)]).detach().cpu())
     output = torch.cat(output, dim=0)
@@ -55,4 +53,4 @@ if __name__ =="__main__":
     parser.add_argument('--batch_size', type=int, default=16, help='batch size')
     opt = parser.parse_args()
     # add_face_local(opt.database_path, opt.model_name, opt.batch_size)
-    add_face_local("../lfw", 'arcface50', 32)
+    add_face_local("../newData", 'arcface34', 32)
